@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Local Latex</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
+  <style>
+    body, html {
+      margin: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #toolbar {
+      background: #333;
+      color: white;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #toolbar select, #toolbar input, #toolbar button {
+      margin-left: 10px;
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+
+    #container {
+      display: flex;
+      flex: 1;
+      border: 1px solid #cbd5e0;
+      height: 16rem;
+      width: 100%;
+    }
+
+    #editor {
+      width: 50%;
+      border-right: 1px solid #ccc; 
+      display: flex;
+      justify-content: center;
+    }
+    .CodeMirror {
+      width: 100%;
+      height: 100%;
+    }
+
+    #pdf-viewer {
+      width: 100%;
+      border: none;
+      display: flex;
+      justify-content: center;
+    }
+
+    #error-container {
+      display: none;
+      background: #222;
+      color: red;
+      padding: 10px;
+      font-family: monospace;
+      overflow: auto;
+      height: 200px;
+    }
+
+    #error-container button {
+      background: #444;
+      color: white;
+      margin-top: 5px;
+    }
+
+    .resizer {
+    background-color: #cbd5e0;
+    cursor: ew-resize;
+    height: 100%;
+    width: 5px;
+}
+  #file-list.open {
+  width:25px;
+  transform: translateX(0);
+  display:none
+}
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+<div id="sidebar">
+  <button id="toggle-sidebar" onclick="toggleSidebar()">☰</button>
+</div>
+  <div>
+    <label for="project-select">Project:</label>
+    <select id="project-select" onchange="loadProject()">
+      <!-- Options will be populated dynamically -->
+    </select>
+    <input type="text" id="new-project-name" placeholder="New project name" />
+    <button onclick="createNewProject()">Create Project</button>
+    <input type="file" id="file-upload" multiple style="display: none;" onchange="uploadFiles()" />
+    <button onclick="document.getElementById('file-upload').click()">Upload Files</button>
+  </div>
+  <div>
+    <button onclick="saveAndCompile()">Save & Compile</button>
+  </div>
+</div>
+
+<div id="container">
+  <div id="file-list"></div>
+  <textarea id="editor">// Loading...</textarea>
+    <div class="resizer" id="dragMe"></div>
+  <iframe id="pdf-viewer"></iframe>
+</div>
+
+<div id="error-container">
+  <div id="error-log" style="display: none;"></div>
+  <button onclick="toggleErrorLog()">Show Error Log</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/keymap/vim.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/stex/stex.min.js"></script>
+
+<script>
+  const editor = CodeMirror.fromTextArea(document.getElementById('editor'), {
+    mode: 'stex',
+    theme: 'monokai',
+    lineNumbers: true,
+    keyMap: 'vim',
+  });
+
+  let currentProject = '';
+
+  window.onload = function () {
+    fetch('/projects')
+      .then(res => res.json())
+      .then(data => {
+        const select = document.getElementById('project-select');
+        select.innerHTML = '';
+        data.projects.forEach(project => {
+          const option = document.createElement('option');
+          option.value = project;
+          option.textContent = project;
+          select.appendChild(option);
+        });
+        if (data.projects.length > 0) {
+          currentProject = data.projects[0];
+          select.value = currentProject;
+          loadProject();
+        }
+      });
+  };
+
+  function loadProject() {
+    const select = document.getElementById('project-select');
+    currentProject = select.value;
+    fetch(`/load/${encodeURIComponent(currentProject)}`)
+      .then(res => {
+        if (!res.ok) throw new Error('No document.tex found');
+        return res.json();
+      })
+      .then(data => {
+        editor.setValue(data.content);
+        document.getElementById('pdf-viewer').src = `/pdf/${encodeURIComponent(currentProject)}`;
+      })
+      .catch(() => {
+        editor.setValue('% No document.tex found. Click "Save & Compile" to create one.');
+        document.getElementById('pdf-viewer').src = '';
+      });
+  }
+
+  function createNewProject() {
+    const projectName = document.getElementById('new-project-name').value.trim();
+    if (!projectName) {
+      alert('Please enter a project name.');
+      return;
+    }
+    fetch(`/create/${projectName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: projectName })
+    })
+    .then(res => res.json())
+    .then(data => {
+      const select = document.getElementById('project-select');
+      const option = document.createElement('option');
+      option.value = projectName;
+      option.textContent = projectName;
+      select.appendChild(option);
+      select.value = projectName;
+      currentProject = projectName;
+      editor.setValue(data.content);
+      document.getElementById('pdf-viewer').src = '';
+      document.getElementById('new-project-name').value = '';
+    });
+  }
+
+  function saveAndCompile() {
+    const content = editor.getValue();
+    fetch(`/save/${encodeURIComponent(currentProject)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: currentProject, content })
+    })
+    .then(res => {
+      if (!res.ok) {
+        return res.text().then(text => { throw new Error(text); });
+      }
+      return res.json();
+    })
+    .then(() => {
+      document.getElementById('pdf-viewer').src = `/pdf/${encodeURIComponent(currentProject)}`;
+      document.getElementById('error-container').style.display = 'none';
+    })
+    .catch(err => {
+      const errorLog = document.getElementById('error-log');
+      errorLog.textContent = err.message;
+      errorLog.style.display = 'none';
+      document.getElementById('error-container').style.display = 'block';
+    });
+  }
+
+  function uploadFiles() {
+    const input = document.getElementById('file-upload');
+    const files = input.files;
+
+    if (!files.length || !currentProject) return;
+
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+
+    fetch(`/upload/${encodeURIComponent(currentProject)}`, {
+      method: 'POST',
+      body: formData
+      })
+    .then(res => {
+      if (!res.ok) throw new Error('Upload failed');
+      alert('Files uploaded successfully!');
+      input.value = ''; // Reset input
+    })
+    .catch(err => {
+      alert(`Upload error: ${err.message}`);
+    });
+  }
+
+  function toggleErrorLog() {
+    const log = document.getElementById('error-log');
+    const button = document.querySelector('#error-container button');
+    if (log.style.display === 'none') {
+      log.style.display = 'block';
+      button.textContent = 'Hide Error Log';
+    } else {
+      log.style.display = 'none';
+      button.textContent = 'Show Error Log';
+    }
+  }
+
+
+  // vertical movable line
+  document.addEventListener('DOMContentLoaded', function () {
+    // Query the element
+    const resizer = document.getElementById('dragMe');
+    const leftSide = resizer.previousElementSibling;
+    const rightSide = resizer.nextElementSibling;
+
+    // The current position of mouse
+    let x = 0;
+    let y = 0;
+    let leftWidth = 0;
+
+    // Handle the mousedown event
+    // that's triggered when user drags the resizer
+    const mouseDownHandler = function (e) {
+        // Get the current mouse position
+        x = e.clientX;
+        y = e.clientY;
+        leftWidth = leftSide.getBoundingClientRect().width;
+
+        // Attach the listeners to document
+        document.addEventListener('mousemove', mouseMoveHandler);
+        document.addEventListener('mouseup', mouseUpHandler);
+    };
+
+    const mouseMoveHandler = function (e) {
+        // How far the mouse has been moved
+        const dx = e.clientX - x;
+        const dy = e.clientY - y;
+
+        const newLeftWidth = ((leftWidth + dx) * 100) / resizer.parentNode.getBoundingClientRect().width;
+        leftSide.style.width = newLeftWidth + '%';
+
+        resizer.style.cursor = 'col-resize';
+        document.body.style.cursor = 'col-resize';
+
+        leftSide.style.userSelect = 'none';
+        leftSide.style.pointerEvents = 'none';
+
+        rightSide.style.userSelect = 'none';
+        rightSide.style.pointerEvents = 'none';
+    };
+
+    const mouseUpHandler = function () {
+        resizer.style.removeProperty('cursor');
+        document.body.style.removeProperty('cursor');
+
+        leftSide.style.removeProperty('user-select');
+        leftSide.style.removeProperty('pointer-events');
+
+        rightSide.style.removeProperty('user-select');
+        rightSide.style.removeProperty('pointer-events');
+
+        // Remove the handlers of mousemove and mouseup
+        document.removeEventListener('mousemove', mouseMoveHandler);
+        document.removeEventListener('mouseup', mouseUpHandler);
+    };
+
+    // Attach the handler
+    resizer.addEventListener('mousedown', mouseDownHandler);
+});
+
+  function toggleSidebar() {
+  document.getElementById('file-list').classList.toggle('open');
+}
+
+function loadFileList() {
+  if (!currentProject) return;
+  fetch(`/files/${encodeURIComponent(currentProject)}`)
+    .then(res => res.json())
+    .then(data => {
+      const fileList = document.getElementById('file-list');
+      fileList.innerHTML = `<strong>Files in ${currentProject}:</strong><br/><br/>`;
+      data.files.forEach(file => {
+        const fileDiv = document.createElement('div');
+        fileDiv.textContent = file;
+        fileList.appendChild(fileDiv);
+      });
+    });
+}
+
+  function loadProject() {
+  const select = document.getElementById('project-select');
+  currentProject = select.value;
+  fetch(`/load/${encodeURIComponent(currentProject)}`)
+    .then(res => {
+      if (!res.ok) throw new Error('No document.tex found');
+      return res.json();
+    })
+    .then(data => {
+      editor.setValue(data.content);
+      document.getElementById('pdf-viewer').src = `/pdf/${encodeURIComponent(currentProject)}`;
+      loadFileList(); // ← add this line
+    })
+    .catch(() => {
+      editor.setValue('% No document.tex found. Click "Save & Compile" to create one.');
+      document.getElementById('pdf-viewer').src = '';
+    });
+}
+
+</script>
+
+</body>
+</html>
+
+
+
