@@ -4,3 +4,8 @@
 # Ideas
 ## Make a space for the logo
 ## Make the files selectable
+
+
+
+#### I have a plan to give people the option to open the pdf editor in a new tab.
+#### Also I need to fix the code so that uploaded file can be shown immediately to the files tab
