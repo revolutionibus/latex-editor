@@ -4,3 +4,6 @@
 # Ideas
 ## Make a space for the logo
 ## Make the files selectable
+
+
+### I want to add the HEPCAT logo here
