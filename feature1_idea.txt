@@ -1,1 +1,6 @@
 # Want to beautify the look as close as possible to Overleaf
+
+
+# Ideas
+## Make a space for the logo
+## Make the files selectable
